@@ -1,6 +1,6 @@
 # hkp
 
-A collection of my scripts (`~/hkp`) to manage files, folders, repos, set permissions, prune empty folders, combine pdf files, etc. Requires [fd], ghostscript, [detox][d], rename, and python. This includes:
+A collection of my scripts (`~/scripts/hkp`) to manage files, folders, repos, set permissions, prune empty folders, combine pdf files, etc. Requires [fd], ghostscript, [detox][d], rename, and python. This includes:
 
 1. Combine all pdf files and the current folder
 2. Combine subfolder-wise pdf files
@@ -16,19 +16,19 @@ A collection of my scripts (`~/hkp`) to manage files, folders, repos, set permis
 list available scripts:
 
 ```bash
-make --file=/path/to/hkp.make
+make --file=~/scripts/hkp/hkp.make
 ```
 
 run a script:
 
 ```bash
-make --file=~/path/to/hkp.make <cmd>
+make --file=~~/scripts/hkp/hkp.make <cmd>
 ```
 
 simplify the long command: by adding the following to `.bashrc` (or `.zshrc`):
 
 ```bash
-alias hk="make --file=/path/to/hkp.make"
+alias hk="make --file=~/scripts/hkp/hkp.make"
 ```
 
 With the above the following can simply be used:
