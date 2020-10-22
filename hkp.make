@@ -4,10 +4,11 @@
 .PHONY: help
 help: ## show this help
 	@echo 'usage: make --file=~/scripts/hkp/hkp.make <cmd>'
+	@echo 'requires detox, fd, git, gs, pandoc, python{,3}, rename, zsh'
 	@echo '<cmd> available:'
 	@egrep -h '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf " \033[36m%-6s\033[0m %s\n", $$1, $$2}'
 
-m2t: ## convert all markdown files to text in the folder
+m2t: ## convert all .md files to text in the curr folder
 	@bash ~/scripts/hkp/md2txt.sh
 
 cmbi: ## combine all pdf files in the curr folder
@@ -36,3 +37,6 @@ sffn: ## sanitise folder and filenames
 	@detox -r ./*
 	@bash ~/scripts/hkp/rdot.sh
 	@fd --type f . | rename 's/-\.pdf/\.pdf/g'
+
+srv: ## serve this folder
+	@python3 ~/scripts/hkp/srv3.py
