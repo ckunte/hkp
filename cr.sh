@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 git checkout --orphan newBranch
 git add -A
 git commit -m 'first commit'

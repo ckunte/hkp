@@ -6,7 +6,10 @@ help: ## show this help
 	@echo 'usage: make --file=~/scripts/hkp/hkp.make <cmd>'
 	@echo 'requires detox, fd, git, gs, pandoc, python{,3}, rename, zsh'
 	@echo '<cmd> available:'
-	@egrep -h '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf " \033[36m%-6s\033[0m %s\n", $$1, $$2}'
+	@grep -e '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf " \033[36m%-6s\033[0m %s\n", $$1, $$2}'
+
+dss: ## delete all .DS_Store files
+	@bash ~/scripts/hkp/dss.sh
 
 m2t: ## convert all .md files to text in the curr folder
 	@bash ~/scripts/hkp/md2txt.sh
@@ -15,7 +18,7 @@ cmbi: ## combine all pdf files in the curr folder
 	@bash ~/scripts/hkp/cmb.sh
 
 cmbs: ## combine sub-folder-wise pdf files
-	@python ~/scripts/hkp/cmb.py
+	@python3 ~/scripts/hkp/cmb.py
 
 cmpr: ## compress all pdf files in the curr folder
 	@detox ./*

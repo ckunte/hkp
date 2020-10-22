@@ -1,19 +1,21 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
-'''
-combine folder-wise pdf files
+"""
+Combine folder-wise PDF files using Ghostscript
 2014 ckunte
-'''
-import os
-import platform
+"""
 
-platforms = os.walk('.').next()[1]
-for platform in platforms:
-    msg = 'echo "Processing ' + str(platform) + ' ..";'
-    cdr = 'cd ' + str(platform) + ';'
-    if platform.system() == 'Darwin':
-        cmd = '/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py -o' + str(platform) + '-all.pdf *.pdf;'
-    else:
-        cmd = 'gs -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOUTPUTFILE=' + str(platform) + '-all.pdf *.pdf;'
-    os.system(msg + cdr + cmd)
-pass
+import os
+
+curr_dir = os.getcwd()
+folders = next(os.walk(curr_dir))[1]
+
+for fldr_name in folders:
+    pdf_files = os.path.join(fldr_name, "*.pdf")
+    output_pdf = os.path.join(fldr_name, f"{fldr_name}-all.pdf")
+
+    cmd = (
+        f"gs -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOUTPUTFILE={output_pdf} {pdf_files}"
+    )
+
+    os.system(cmd)
