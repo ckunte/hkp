@@ -30,7 +30,7 @@ hk <cmd>
 
 ## requires
 
-This package requires fd, git, gs, pandoc, python, rename, and zsh. With Homebrew, these can be installed as follows:
+This package requires detox, fd, git, gs, pandoc, python, rename, and zsh. With Homebrew, these can be installed as follows:
 
 ```bash
 brew update && brew install fd git gs pandoc python3 rename zsh
