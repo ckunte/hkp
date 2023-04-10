@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Find all empty directories in the current folder and its subfolders
 empty_dirs=$(find . -type d -empty)
