@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 echo -n "Purging LaTeX compile files..."
-find ~/. -name "*.log" -type f -delete
-find ~/. -name "*.out" -type f -delete
-find ~/. -name "*.aux" -type f -delete
-find ~/. -name "*.gz" -type f -delete
+find . -type f -name "*.log" -delete
+find . -type f -name "*.out" -delete
+find . -type f -name "*.aux" -delete
+find . -type f -name "*.gz" -delete
 echo "done."
