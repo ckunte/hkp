@@ -7,12 +7,12 @@ Combine folder-wise PDF files using Ghostscript
 
 import os
 
-current_directory = os.getcwd()
-folder = next(os.walk(current_directory))[1]
+curr_dir = os.getcwd()
+folders = next(os.walk(curr_dir))[1]
 
-for folder_name in folder:
-    pdf_files = os.path.join(folder_name, "*.pdf")
-    output_pdf = os.path.join(folder_name, f"{folder_name}-all.pdf")
+for fldr_name in folders:
+    pdf_files = os.path.join(fldr_name, "*.pdf")
+    output_pdf = os.path.join(fldr_name, f"{fldr_name}-all.pdf")
 
     cmd = (
         f"gs -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOUTPUTFILE={output_pdf} {pdf_files}"

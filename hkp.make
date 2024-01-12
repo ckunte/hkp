@@ -16,7 +16,6 @@ cmbi: ## combine all pdf files in the curr folder
 
 cmbs: ## combine sub-folder-wise pdf files
 	@python3 ~/scripts/hkp/cmb.py
-	#@bash ~/scripts/hkp/cmbs.sh ./	
 
 cmpr: ## compress all pdf files in the curr folder
 	@detox ./*
