@@ -7,9 +7,22 @@ A collection of my scripts (`~/scripts/hkp`) to manage files, folders, repos, se
 list available scripts:
 
 ```bash
-make --file=~/scripts/hkp/hkp.make
+usage: make --file=~/scripts/hkp/hkp.make <cmd>
+requires detox, fd, git, gs, pandoc, python{,3}, rename, zsh
+<cmd> available:
+ cmbi   combine all pdf files in the curr folder
+ cmbs   combine sub-folder-wise pdf files
+ cmpr   compress all pdf files in the curr folder
+ cr     delete and recreate master git repository
+ dss    delete all .DS_Store files
+ efd    purge empty folders
+ ffp    apply permissions: folders (755), files (644)
+ help   show this help
+ m2t    convert all .md files to text in the curr folder
+ plcf   purge LaTeX compile files
+ sffn   sanitise folder and filenames
+ srv    serve this folder
 ```
-
 run a script:
 
 ```bash
