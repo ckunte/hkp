@@ -8,6 +8,9 @@ help: ## show this help
 	@echo '<cmd> available:'
 	@grep -e '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf " \033[36m%-6s\033[0m %s\n", $$1, $$2}'
 
+cpng: ## compress png images with pngquant
+	@bash ~/scripts/hkp/cpng.sh
+
 dss: ## delete all .DS_Store files
 	@bash ~/scripts/hkp/dss.sh
 
