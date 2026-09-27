@@ -1,0 +1,101 @@
+name: release
+
+# Build `hk` for Windows (x86-64), macOS (Apple silicon) and Raspberry Pi 5
+# (64-bit Linux, statically linked), and attach the archives to a GitHub release.
+#
+# Trigger: push a tag like v0.1.0   ->  git tag v0.1.0 && git push origin v0.1.0
+# or run it by hand from the Actions tab (builds artifacts only, no release).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: hk.exe
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            exe: hk
+          # musl = fully static, so it runs on any 64-bit Raspberry Pi OS
+          # regardless of the glibc version installed on the Pi.
+          - name: linux-arm64-rpi5
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            exe: hk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: package (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "hk-${{ github.ref_name }}-${{ matrix.name }}"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.exe }}", README.md -DestinationPath "dist/$name.zip"
+
+      - name: package (tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          name="hk-${{ github.ref_name }}-${{ matrix.name }}"
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.exe }}" README.md dist/
+          tar -C dist -czf "dist/$name.tar.gz" ${{ matrix.exe }} README.md
+          rm dist/${{ matrix.exe }} dist/README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hk-${{ matrix.name }}
+          path: dist/*
+
+  release:
+    name: publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

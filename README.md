@@ -22,6 +22,20 @@ commands:
 
 ## install
 
+### prebuilt binaries
+
+Download the archive for your system from [Releases](https://github.com/ckunte/hkp/releases), extract it, and put `hk` (or `hk.exe`) somewhere on your `PATH`:
+
+| system                              | archive                          |
+|-------------------------------------|----------------------------------|
+| Windows (x86-64)                    | `hk-<version>-windows-x86_64.zip`  |
+| macOS (Apple silicon, M-series)     | `hk-<version>-macos-arm64.tar.gz`  |
+| Raspberry Pi 5 (64-bit Pi OS/Linux) | `hk-<version>-linux-arm64-rpi5.tar.gz` |
+
+On macOS, clear the quarantine flag after downloading: `xattr -d com.apple.quarantine hk`
+
+### from source
+
 Rust is required to build `hk`. Install it via rustup:
 
 ```bash
