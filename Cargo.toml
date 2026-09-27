@@ -1,0 +1,13 @@
+[package]
+name = "hk"
+version = "0.1.0"
+edition = "2021"
+description = "Housekeeping tools — pure Rust, single binary, no Make required"
+
+[[bin]]
+name = "hk"
+path = "src/main.rs"
+
+[dependencies]
+lopdf  = "0.45"
+rayon  = "1"
