@@ -75,4 +75,4 @@ All platforms       https://pngquant.org
 - `cmbi` and `cmbs` use pure Rust (lopdf) — no Ghostscript needed for combining PDFs
 - `srv` is a built-in HTTP server — no Python needed
 - `sffn` sanitises file/folder names natively — no fd, detox, or rename needed
-- `ffp` is pure Rust — no shell tools needed
+- `ffp` is pure Rust — no shell tools needed (macOS / Linux only; not available on Windows)

@@ -3,6 +3,7 @@ use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write as IoWrite};
 use std::net::{TcpListener, TcpStream};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -133,6 +134,7 @@ fn dir_stem(dir: &Path) -> String {
 // ffp — fix permissions: dirs 755, files 644 (parallel chmod)
 // ---------------------------------------------------------------------------
 
+#[cfg(unix)]
 fn cmd_ffp() -> Result<()> {
     let cwd = env::current_dir()?;
     let (dirs, files) = walk(&cwd);
@@ -154,6 +156,11 @@ fn cmd_ffp() -> Result<()> {
         if files.len() == 1 { "" } else { "s" }
     );
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn cmd_ffp() -> Result<()> {
+    Err("ffp is not supported on this platform (Unix permission modes only)".into())
 }
 
 // ---------------------------------------------------------------------------
