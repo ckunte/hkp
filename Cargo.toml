@@ -1,6 +1,6 @@
 [package]
 name = "hk"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Housekeeping tools — pure Rust, single binary, no Make required"
 
