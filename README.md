@@ -31,6 +31,7 @@ Download the archive for your system from [Releases](https://github.com/ckunte/h
 | Windows (x86-64)                    | `hk-<version>-windows-x86_64.zip`  |
 | macOS (Apple silicon, M-series)     | `hk-<version>-macos-arm64.tar.gz`  |
 | Raspberry Pi 5 (64-bit Pi OS/Linux) | `hk-<version>-linux-arm64-rpi5.tar.gz` |
+| Linux x86-64 (any distro)           | `hk-<version>-linux-x86_64.tar.gz` |
 
 On macOS, clear the quarantine flag after downloading: `xattr -d com.apple.quarantine hk`
 

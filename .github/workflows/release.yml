@@ -1,7 +1,7 @@
 name: release
 
-# Build `hk` for Windows (x86-64), macOS (Apple silicon) and Raspberry Pi 5
-# (64-bit Linux, statically linked), and attach the archives to a GitHub release.
+# Build `hk` for Windows (x86-64), macOS (Apple silicon), Raspberry Pi 5 and
+# Linux x86-64 (both statically linked), and attach the archives to a GitHub release.
 #
 # Trigger: push a tag like v0.1.0   ->  git tag v0.1.0 && git push origin v0.1.0
 # or run it by hand from the Actions tab (builds artifacts only, no release).
@@ -38,6 +38,11 @@ jobs:
           - name: linux-arm64-rpi5
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
+            exe: hk
+          # static build for any 64-bit Intel/AMD Linux distro
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
             exe: hk
 
     steps:
