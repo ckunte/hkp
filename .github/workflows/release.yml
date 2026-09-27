@@ -41,7 +41,7 @@ jobs:
             exe: hk
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -76,7 +76,7 @@ jobs:
           tar -C dist -czf "dist/$name.tar.gz" ${{ matrix.exe }} README.md
           rm dist/${{ matrix.exe }} dist/README.md
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: hk-${{ matrix.name }}
           path: dist/*
@@ -87,7 +87,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
@@ -95,7 +95,7 @@ jobs:
       - name: checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
