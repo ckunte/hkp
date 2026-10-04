@@ -105,12 +105,15 @@ fn walk_inner(
     dirs.lock().unwrap().extend(subdirs.into_iter().map(|p| (depth + 1, p)));
 }
 
-fn collect_sorted_pdfs(dir: &Path) -> Vec<PathBuf> {
+/// PDFs directly inside `dir`, sorted, excluding a file named `skip` (the
+/// combined output of a previous run, which must not be merged into itself).
+fn collect_sorted_pdfs(dir: &Path, skip: &str) -> Vec<PathBuf> {
     let Ok(rd) = fs::read_dir(dir) else { return vec![]; };
     let mut pdfs: Vec<PathBuf> = rd
         .flatten()
         .filter(|e| {
             e.file_type().map(|ft| ft.is_file()).unwrap_or(false)
+                && e.file_name() != skip
                 && e.path()
                     .extension()
                     .and_then(|ext| ext.to_str())
@@ -370,14 +373,33 @@ fn type_of(obj: &Object) -> &str {
         .unwrap_or("")
 }
 
+/// Refuse absurdly large inputs (lopdf reads the whole file into memory).
+const MAX_PDF_BYTES: u64 = 1 << 30;
+
+/// Load a PDF, turning both parse errors and lopdf panics on malformed input
+/// into an ordinary error naming the file.
+fn load_pdf(path: &Path) -> Result<Document> {
+    let len = fs::metadata(path)
+        .map_err(|e| format!("{}: {}", path.display(), e))?
+        .len();
+    if len > MAX_PDF_BYTES {
+        return Err(format!("{}: file too large ({} MiB, limit {} MiB)",
+            path.display(), len >> 20, MAX_PDF_BYTES >> 20).into());
+    }
+    match std::panic::catch_unwind(|| Document::load(path)) {
+        Ok(Ok(doc)) => Ok(doc),
+        Ok(Err(e))  => Err(format!("{}: {}", path.display(), e).into()),
+        Err(_)      => Err(format!("{}: malformed PDF (parser crashed)", path.display()).into()),
+    }
+}
+
 fn merge_pdfs(paths: &[PathBuf]) -> Result<Document> {
     let mut max_id: u32 = 1;
     let mut ordered_pages: Vec<(ObjectId, Object)> = Vec::new();
     let mut resources: BTreeMap<ObjectId, Object> = BTreeMap::new();
 
     for path in paths {
-        let mut doc = Document::load(path)
-            .map_err(|e| format!("{}: {}", path.display(), e))?;
+        let mut doc = load_pdf(path)?;
         doc.renumber_objects_with(max_id);
         max_id = doc.max_id + 1;
 
@@ -437,34 +459,54 @@ fn merge_pdfs(paths: &[PathBuf]) -> Result<Document> {
     Ok(merged)
 }
 
+fn comb_name(dir: &Path) -> String {
+    format!("{}-comb.pdf", dir_stem(dir))
+}
+
+/// Merge `pdfs` into `output`.  The result is written to a temporary file and
+/// renamed into place, so a failed run never clobbers an earlier output.
+fn write_combined(pdfs: &[PathBuf], output: &Path) -> Result<()> {
+    let replacing = output.exists();
+    let mut doc = merge_pdfs(pdfs)?;
+    let tmp = output.with_file_name(format!(
+        ".{}.tmp",
+        output.file_name().unwrap().to_string_lossy()
+    ));
+    if let Err(e) = doc.save(&tmp) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+    fs::rename(&tmp, output).inspect_err(|_| { let _ = fs::remove_file(&tmp); })?;
+    if replacing { print!("(replaced existing) "); }
+    Ok(())
+}
+
 fn combine_dir(dir: &Path) -> Result<()> {
-    let pdfs = collect_sorted_pdfs(dir);
+    let out_name = comb_name(dir);
+    let pdfs = collect_sorted_pdfs(dir, &out_name);
     if pdfs.is_empty() { return Ok(()); }
-    let name   = dir_stem(dir);
-    let output = dir.join(format!("{}-comb.pdf", name));
     print!(
         "  {} ({} file{}) → {} ... ",
-        name,
+        dir_stem(dir),
         pdfs.len(),
         if pdfs.len() == 1 { "" } else { "s" },
-        output.file_name().unwrap().to_string_lossy()
+        out_name
     );
     io::stdout().flush().ok();
-    let mut doc = merge_pdfs(&pdfs)?;
-    doc.save(&output)?;
+    write_combined(&pdfs, &dir.join(&out_name))?;
     println!("done.");
     Ok(())
 }
 
 fn cmd_cmbi() -> Result<()> {
-    let cwd  = env::current_dir()?;
-    let pdfs = collect_sorted_pdfs(&cwd);
+    let cwd      = env::current_dir()?;
+    let out_name = comb_name(&cwd);
+    let pdfs     = collect_sorted_pdfs(&cwd, &out_name);
     if pdfs.is_empty() {
         println!("No PDF files found in the current directory.");
         return Ok(());
     }
-    let name   = dir_stem(&cwd);
-    let output = cwd.join(format!("{}-comb.pdf", name));
+    let output = cwd.join(&out_name);
     print!(
         "Combining {} file{} → {} ... ",
         pdfs.len(),
@@ -472,8 +514,7 @@ fn cmd_cmbi() -> Result<()> {
         output.display()
     );
     io::stdout().flush().ok();
-    let mut doc = merge_pdfs(&pdfs)?;
-    doc.save(&output)?;
+    write_combined(&pdfs, &output)?;
     println!("done.");
     Ok(())
 }
@@ -493,10 +534,20 @@ fn cmd_cmbs() -> Result<()> {
     }
 
     println!("Combining PDFs in subdirectories of {}:", cwd.display());
+    // One bad directory must not stop the rest; report failures at the end.
+    let mut failures = 0usize;
     for dir in dirs {
-        combine_dir(&dir)?;
+        if let Err(e) = combine_dir(&dir) {
+            println!("failed.");
+            eprintln!("warning: {}", e);
+            failures += 1;
+        }
     }
     println!("Done.");
+    if failures > 0 {
+        return Err(format!("{} director{} failed", failures,
+            if failures == 1 { "y" } else { "ies" }).into());
+    }
     Ok(())
 }
 
