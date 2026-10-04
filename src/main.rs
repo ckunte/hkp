@@ -30,7 +30,8 @@ r#"Usage: hk <command> [argument]
   cmbs          Combine PDFs per subdirectory → <subdir>-comb.pdf
   cpng          Compress PNGs (q60-80) into ./compressed/ [pngquant]
   cr [--yes]    Squash git history to one commit, force-push [git]
-  ffp           Set permissions: dirs 755, files 644
+  ffp [--yes] [--all]
+                Set permissions: dirs 755, files 644 (keeps +x, skips private)
   sffn          Sanitise names of folders, documents and media files:
                 spaces/dots→underscores, strip trailing hyphens
   srv [port] [--public]
@@ -138,31 +139,84 @@ fn dir_stem(dir: &Path) -> String {
 // ---------------------------------------------------------------------------
 
 #[cfg(unix)]
-fn cmd_ffp() -> Result<()> {
+fn cmd_ffp(flags: &[String]) -> Result<()> {
+    let assume_yes  = flags.iter().any(|a| a == "--yes" || a == "-y");
+    let include_all = flags.iter().any(|a| a == "--all");
+
     let cwd = env::current_dir()?;
+    let home = env::var_os("HOME").and_then(|h| PathBuf::from(h).canonicalize().ok());
+    if cwd.parent().is_none() || home.as_deref() == Some(cwd.as_path()) {
+        return Err("refusing to change permissions of / or your home folder".into());
+    }
+
+    println!("This will recursively set permissions under {}:", cwd.display());
+    println!("  folders → 755, files → 644 (files that are already executable → 755)");
+    if !include_all {
+        println!("  private entries (no group/other access, e.g. 600 keys) are skipped; use --all to include them");
+    }
+    if !assume_yes {
+        print!("Continue? [y/N] ");
+        io::stdout().flush().ok();
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        if !matches!(answer.trim(), "y" | "Y" | "yes") {
+            return Err("aborted".into());
+        }
+    }
+
     let (dirs, files) = walk(&cwd);
+    let changed = AtomicUsize::new(0);
+    let skipped = AtomicUsize::new(0);
+    let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-    fs::set_permissions(&cwd, fs::Permissions::from_mode(0o755))?;
+    // Walk() never follows symlinks, so only real files and folders are touched.
+    let apply = |path: &Path, is_dir: bool| {
+        let mode = match fs::symlink_metadata(path) {
+            Ok(m)  => m.permissions().mode(),
+            Err(e) => { errors.lock().unwrap().push(format!("{}: {}", path.display(), e)); return; }
+        };
+        if !include_all && mode & 0o077 == 0 {
+            skipped.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let want = if is_dir || mode & 0o111 != 0 { 0o755 } else { 0o644 };
+        if mode & 0o777 == want {
+            return;
+        }
+        match fs::set_permissions(path, fs::Permissions::from_mode(want)) {
+            Ok(_)  => { changed.fetch_add(1, Ordering::Relaxed); }
+            Err(e) => { errors.lock().unwrap().push(format!("{}: {}", path.display(), e)); }
+        }
+    };
+    apply(&cwd, true);
+    dirs.par_iter().for_each(|d| apply(d, true));
+    files.par_iter().for_each(|f| apply(f, false));
 
-    dirs.par_iter().for_each(|d| {
-        let _ = fs::set_permissions(d, fs::Permissions::from_mode(0o755));
-    });
-    files.par_iter().for_each(|f| {
-        let _ = fs::set_permissions(f, fs::Permissions::from_mode(0o644));
-    });
-
-    println!(
-        "Permissions set: {} folder{} (755), {} file{} (644).",
-        dirs.len() + 1,
-        if dirs.len() + 1 == 1 { "" } else { "s" },
-        files.len(),
-        if files.len() == 1 { "" } else { "s" }
-    );
+    let n = changed.load(Ordering::Relaxed);
+    let sk = skipped.load(Ordering::Relaxed);
+    println!("Changed {} entr{} ({} folder{} and {} file{} scanned).",
+        n, if n == 1 { "y" } else { "ies" },
+        dirs.len() + 1, if dirs.len() + 1 == 1 { "" } else { "s" },
+        files.len(),    if files.len() == 1 { "" } else { "s" });
+    if sk > 0 {
+        println!("Skipped {} private entr{}.", sk, if sk == 1 { "y" } else { "ies" });
+    }
+    let errors = errors.into_inner().unwrap();
+    for e in errors.iter().take(10) {
+        eprintln!("warning: {}", e);
+    }
+    if errors.len() > 10 {
+        eprintln!("warning: … and {} more", errors.len() - 10);
+    }
+    if !errors.is_empty() {
+        return Err(format!("{} permission change{} failed", errors.len(),
+            if errors.len() == 1 { "" } else { "s" }).into());
+    }
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn cmd_ffp() -> Result<()> {
+fn cmd_ffp(_flags: &[String]) -> Result<()> {
     Err("ffp is not supported on this platform (Unix permission modes only)".into())
 }
 
@@ -800,7 +854,7 @@ fn main() {
         "cmbs" => cmd_cmbs(),
         "cpng" => cmd_cpng(),
         "cr"   => cmd_cr(args[2..].iter().any(|a| a == "--yes" || a == "-y")),
-        "ffp"  => cmd_ffp(),
+        "ffp"  => cmd_ffp(&args[2..]),
         "sffn" => cmd_sffn(),
         "srv"  => {
             let public = args[2..].iter().any(|a| a == "--public");
