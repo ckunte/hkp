@@ -79,5 +79,5 @@ All platforms       https://pngquant.org
 - `srv` is a built-in HTTP server — no Python needed. It binds to 127.0.0.1, serves GET/HEAD only, hides dotfiles, and refuses symlinks that point outside the served folder
 - `cr` requires a clean working tree and a typed confirmation (or `--yes`), and uses `--force-with-lease`; the original branch is restored if the push fails
 - `sffn` skips any rename whose target already exists, and reports it
-- `sffn` sanitises file/folder names natively — no fd, detox, or rename needed
+- `sffn` sanitises folder names and the names of document (pdf, doc/docx, xls/xlsx, ppt/pptx, odt/ods/odp, rtf, txt, md, csv, epub, pages/numbers/key), image (jpg, png, gif, webp, heic, tiff, bmp, svg), audio (mp3, wav, flac, m4a, aac, ogg) and video (mp4, mov, mkv, avi, webm, m4v) files natively — no fd, detox, or rename needed. Other files and hidden files are left alone. The list is `SANITISE_EXTS` in `src/main.rs`
 - `ffp` is pure Rust — no shell tools needed (macOS / Linux only; not available on Windows)

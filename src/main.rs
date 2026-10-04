@@ -31,7 +31,8 @@ r#"Usage: hk <command> [argument]
   cpng          Compress PNGs (q60-80) into ./compressed/ [pngquant]
   cr [--yes]    Squash git history to one commit, force-push [git]
   ffp           Set permissions: dirs 755, files 644
-  sffn          Sanitise names: spaces/dots→underscores, strip hyphens
+  sffn          Sanitise names of folders, documents and media files:
+                spaces/dots→underscores, strip trailing hyphens
   srv [port] [--public]
                 Serve current directory over HTTP (default 8000, localhost only)
   help          Show this help
@@ -171,12 +172,27 @@ fn cmd_ffp() -> Result<()> {
 // Rules:
 //   • Replace spaces with underscores in all names
 //   • In directory names: replace every dot with an underscore
-//   • In .pdf and .docx file stems: replace every dot with an underscore
+//   • In document and media file stems (see SANITISE_EXTS): replace every dot
+//     with an underscore; the extension is lowercased
+//   • Hidden files (leading dot) and other file types are left alone
 //   • Strip trailing hyphens before the extension (e.g. "foo-.pdf")
 //
 // File renames are parallelised; directory renames stay sequential
 // (deepest-first) so parent paths are not invalidated mid-run.
 // ---------------------------------------------------------------------------
+
+/// File types whose names `sffn` sanitises (lowercase, no leading dot).
+const SANITISE_EXTS: &[&str] = &[
+    // documents
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+    "rtf", "txt", "md", "csv", "epub", "pages", "numbers", "key",
+    // images
+    "jpg", "jpeg", "png", "gif", "webp", "heic", "tif", "tiff", "bmp", "svg",
+    // audio
+    "mp3", "wav", "flac", "m4a", "aac", "ogg",
+    // video
+    "mp4", "mov", "mkv", "avi", "webm", "m4v",
+];
 
 fn sanitize_dir_name(name: &str) -> String {
     name.chars()
@@ -238,7 +254,8 @@ fn cmd_sffn() -> Result<()> {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
-        if ext != "pdf" && ext != "docx" { continue; }
+        if !SANITISE_EXTS.contains(&ext.as_str()) { continue; }
+        if path.file_name().and_then(|n| n.to_str()).map_or(true, |n| n.starts_with('.')) { continue; }
         let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
         let old_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let new_name = format!("{}.{}", sanitize_file_stem(stem), ext);
