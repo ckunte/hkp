@@ -13,10 +13,12 @@ commands:
   cmbi        combine all PDF files in the current folder
   cmbs        combine PDF files per subdirectory
   cpng        compress PNG images into ./compressed/     [requires: pngquant]
-  cr          squash git history (new orphan branch)     [requires: git]
+  cr [--yes]  squash git history and force-push (asks first) [requires: git]
   ffp         fix permissions: dirs 755, files 644
   sffn        sanitise folder and file names
-  srv [port]  serve the current folder over HTTP (default port 8000)
+  srv [port] [--public]
+              serve the current folder over HTTP (default port 8000,
+              localhost only; --public listens on all interfaces)
   help        show this help
 ```
 
@@ -74,6 +76,8 @@ All platforms       https://pngquant.org
 ## notes
 
 - `cmbi` and `cmbs` use pure Rust (lopdf) — no Ghostscript needed for combining PDFs
-- `srv` is a built-in HTTP server — no Python needed
+- `srv` is a built-in HTTP server — no Python needed. It binds to 127.0.0.1, serves GET/HEAD only, hides dotfiles, and refuses symlinks that point outside the served folder
+- `cr` requires a clean working tree and a typed confirmation (or `--yes`), and uses `--force-with-lease`; the original branch is restored if the push fails
+- `sffn` skips any rename whose target already exists, and reports it
 - `sffn` sanitises file/folder names natively — no fd, detox, or rename needed
 - `ffp` is pure Rust — no shell tools needed (macOS / Linux only; not available on Windows)

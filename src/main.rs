@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write as IoWrite};
+use std::io::{self, BufRead, BufReader, Read, Write as IoWrite};
 use std::net::{TcpListener, TcpStream};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -11,6 +11,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,
 };
+use std::time::Duration;
 
 use lopdf::{dictionary, Document, Object, ObjectId};
 use rayon::prelude::*;
@@ -28,10 +29,11 @@ r#"Usage: hk <command> [argument]
   cmbi          Combine PDFs in current folder → <dirname>-comb.pdf
   cmbs          Combine PDFs per subdirectory → <subdir>-comb.pdf
   cpng          Compress PNGs (q60-80) into ./compressed/ [pngquant]
-  cr            Squash git history to one commit, force-push [git]
+  cr [--yes]    Squash git history to one commit, force-push [git]
   ffp           Set permissions: dirs 755, files 644
   sffn          Sanitise names: spaces/dots→underscores, strip hyphens
-  srv [port]    Serve current directory over HTTP (default port 8000)
+  srv [port] [--public]
+                Serve current directory over HTTP (default 8000, localhost only)
   help          Show this help
 
   pngquant: brew install pngquant · apt/dnf install pngquant
@@ -198,56 +200,86 @@ fn sanitize_file_stem(stem: &str) -> String {
     s.trim_end_matches(['-', '_']).to_owned()
 }
 
+/// Plan `from` -> `parent/new_name` only when it is safe: the new name must be
+/// usable, must not already exist on disk, and must not be claimed by another
+/// rename in this run.  `fs::rename` silently replaces an existing target on
+/// Unix, so without this check "a b.pdf" and "a_b.pdf" would destroy one another.
+fn plan_rename(
+    from: &Path,
+    new_name: &str,
+    claimed: &mut HashSet<PathBuf>,
+    skipped: &mut Vec<String>,
+) -> Option<(PathBuf, PathBuf)> {
+    let to = from.parent()?.join(new_name);
+    if new_name.is_empty() || new_name.starts_with('.') {
+        skipped.push(format!("{}: sanitised name '{}' is unusable", from.display(), new_name));
+        return None;
+    }
+    if to.symlink_metadata().is_ok() || !claimed.insert(to.clone()) {
+        skipped.push(format!("{}: target {} already exists", from.display(), to.display()));
+        return None;
+    }
+    Some((from.to_path_buf(), to))
+}
+
 fn cmd_sffn() -> Result<()> {
     let cwd = env::current_dir()?;
     let (dirs, files) = walk(&cwd);
     let count = AtomicUsize::new(0);
+    let mut claimed: HashSet<PathBuf> = HashSet::new();
+    let mut skipped: Vec<String> = Vec::new();
 
-    // Rename .pdf and .docx files in parallel (each rename is independent).
-    let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    files.par_iter().for_each(|path| {
+    // Plan every rename sequentially so collisions are detected
+    // deterministically; only the (independent) execution is parallel.
+    let mut file_plan: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for path in &files {
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
-        if ext != "pdf" && ext != "docx" { return; }
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s,
-            None    => return,
-        };
+        if ext != "pdf" && ext != "docx" { continue; }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
         let old_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let new_name = format!("{}.{}", sanitize_file_stem(stem), ext);
         if new_name != old_name {
-            let new_path = path.parent().unwrap().join(&new_name);
-            match fs::rename(path, &new_path) {
-                Ok(_)  => { count.fetch_add(1, Ordering::Relaxed); }
-                Err(e) => { errors.lock().unwrap()
-                                .push(format!("{}: {}", path.display(), e)); }
+            if let Some(p) = plan_rename(path, &new_name, &mut claimed, &mut skipped) {
+                file_plan.push(p);
             }
         }
-    });
+    }
 
-    // Rename directories sequentially, deepest-first.
+    // Directories are renamed deepest-first so parent paths stay valid.
+    let mut dir_plan: Vec<(PathBuf, PathBuf)> = Vec::new();
     for path in &dirs {
-        let name = match path.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n,
-            None    => continue,
-        };
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
         let new_name = sanitize_dir_name(name);
         if new_name != name {
-            let new_path = path.parent().unwrap().join(&new_name);
-            match fs::rename(path, &new_path) {
-                Ok(_)  => { count.fetch_add(1, Ordering::Relaxed); }
-                Err(e) => { errors.lock().unwrap()
-                                .push(format!("{}: {}", path.display(), e)); }
+            if let Some(p) = plan_rename(path, &new_name, &mut claimed, &mut skipped) {
+                dir_plan.push(p);
             }
+        }
+    }
+
+    let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    file_plan.par_iter().for_each(|(from, to)| {
+        match fs::rename(from, to) {
+            Ok(_)  => { count.fetch_add(1, Ordering::Relaxed); }
+            Err(e) => { errors.lock().unwrap()
+                            .push(format!("{}: {}", from.display(), e)); }
+        }
+    });
+    for (from, to) in &dir_plan {
+        match fs::rename(from, to) {
+            Ok(_)  => { count.fetch_add(1, Ordering::Relaxed); }
+            Err(e) => { errors.lock().unwrap()
+                            .push(format!("{}: {}", from.display(), e)); }
         }
     }
 
     let n = count.load(Ordering::Relaxed);
     println!("Sanitised {} name{}.", n, if n == 1 { "" } else { "s" });
-    for e in errors.into_inner().unwrap() {
+    for e in skipped.into_iter().chain(errors.into_inner().unwrap()) {
         eprintln!("warning: {}", e);
     }
     Ok(())
@@ -469,26 +501,82 @@ fn cmd_cpng() -> Result<()> {
 // cr — recreate git repository (squash history)
 // ---------------------------------------------------------------------------
 
-fn cmd_cr() -> Result<()> {
-    println!("Squashing git history …");
-    let cmds: &[&[&str]] = &[
-        &["git", "checkout", "--orphan", "newBranch"],
-        &["git", "add", "-A"],
-        &["git", "commit", "-m", "first commit"],
-        &["git", "branch", "-D", "master"],
-        &["git", "branch", "-m", "master"],
-        &["git", "push", "-f", "origin", "master"],
-        &["git", "gc", "--aggressive", "--prune=all"],
-    ];
-    for cmd in cmds {
-        let status = Command::new(cmd[0])
-            .args(&cmd[1..])
-            .status()
-            .map_err(|_| "git not found")?;
-        if !status.success() {
-            return Err(format!("git command failed: {}", cmd.join(" ")).into());
+/// Run git, return trimmed stdout on success.
+fn git_out(args: &[&str]) -> Result<String> {
+    let out = Command::new("git")
+        .args(args)
+        .output()
+        .map_err(|_| "git not found")?;
+    if !out.status.success() {
+        return Err(format!("git {} failed: {}", args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()).into());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
+fn git_run(args: &[&str]) -> Result<()> {
+    let status = Command::new("git")
+        .args(args)
+        .status()
+        .map_err(|_| "git not found")?;
+    if !status.success() {
+        return Err(format!("git command failed: git {}", args.join(" ")).into());
+    }
+    Ok(())
+}
+
+fn cmd_cr(assume_yes: bool) -> Result<()> {
+    if git_out(&["rev-parse", "--is-inside-work-tree"]).ok().as_deref() != Some("true") {
+        return Err("not inside a git work tree".into());
+    }
+    let branch = git_out(&["rev-parse", "--abbrev-ref", "HEAD"])?;
+    if branch == "HEAD" {
+        return Err("detached HEAD — check out a branch first".into());
+    }
+    let remote = git_out(&["remote", "get-url", "origin"])
+        .map_err(|_| "no 'origin' remote configured")?;
+    // `git add -A` below would sweep up untracked files (possibly secrets),
+    // so insist on a clean tree and let the user decide what goes in.
+    if !git_out(&["status", "--porcelain"])?.is_empty() {
+        return Err("working tree is not clean — commit, stash or ignore changes first".into());
+    }
+
+    println!("This will REPLACE ALL HISTORY of branch '{}' with a single commit", branch);
+    println!("and force-push it to {}", remote);
+    if !assume_yes {
+        print!("Type the branch name to continue: ");
+        io::stdout().flush().ok();
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        if answer.trim() != branch {
+            return Err("aborted".into());
         }
     }
+
+    const TMP: &str = "hk-squash-tmp";
+    println!("Squashing git history …");
+    git_run(&["checkout", "--orphan", TMP])?;
+
+    // Anything failing before the push leaves the original branch untouched;
+    // put the user back on it.
+    let prepare = git_run(&["add", "-A"])
+        .and_then(|_| git_run(&["commit", "-m", "first commit"]))
+        .and_then(|_| {
+            let refspec = format!("{}:{}", TMP, branch);
+            git_run(&["push", "--force-with-lease", "origin", &refspec])
+        });
+    if let Err(e) = prepare {
+        let _ = git_run(&["checkout", "-f", &branch]);
+        let _ = git_run(&["branch", "-D", TMP]);
+        return Err(e);
+    }
+
+    git_run(&["branch", "-D", &branch])?;
+    git_run(&["branch", "-m", &branch])?;
+    git_run(&["branch", "--set-upstream-to", &format!("origin/{}", branch)])?;
+    // Old commits stay reachable through the reflog until it expires, which
+    // keeps a local recovery path (`git reflog`).
+    git_run(&["gc", "--aggressive", "--prune=now"])?;
     println!("Done.");
     Ok(())
 }
@@ -497,23 +585,27 @@ fn cmd_cr() -> Result<()> {
 // srv — serve current folder over HTTP (one thread per connection)
 // ---------------------------------------------------------------------------
 
-fn url_decode(s: &str) -> String {
-    let mut result = String::new();
-    let mut bytes  = s.bytes();
+const MAX_HEADER_BYTES: u64 = 16 * 1024;
+const MAX_CONNECTIONS: usize = 64;
+const IO_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Percent-decode into raw bytes, then validate as UTF-8.  Returns None for
+/// malformed escapes or invalid UTF-8.
+fn url_decode(s: &str) -> Option<String> {
+    let mut out: Vec<u8> = Vec::with_capacity(s.len());
+    let mut bytes = s.bytes();
     while let Some(b) = bytes.next() {
-        if b == b'%' {
-            let h1 = bytes.next().and_then(|c| (c as char).to_digit(16));
-            let h2 = bytes.next().and_then(|c| (c as char).to_digit(16));
-            if let (Some(h1), Some(h2)) = (h1, h2) {
-                result.push((h1 * 16 + h2) as u8 as char);
+        match b {
+            b'%' => {
+                let h1 = bytes.next().and_then(|c| (c as char).to_digit(16))?;
+                let h2 = bytes.next().and_then(|c| (c as char).to_digit(16))?;
+                out.push((h1 * 16 + h2) as u8);
             }
-        } else if b == b'+' {
-            result.push(' ');
-        } else {
-            result.push(b as char);
+            b'+' => out.push(b' '),
+            _    => out.push(b),
         }
     }
-    result
+    String::from_utf8(out).ok()
 }
 
 fn mime_type(path: &Path) -> &'static str {
@@ -534,33 +626,24 @@ fn mime_type(path: &Path) -> &'static str {
     }
 }
 
-fn serve_connection(mut stream: TcpStream, root: &Path) {
-    let mut reader = BufReader::new(&stream);
+/// Map a request path to a file under `root` (which must be canonical).
+/// Refuses `..`, hidden (dot-prefixed) components, and anything whose
+/// canonical location — after resolving symlinks — lies outside `root`.
+fn resolve_request(root: &Path, raw_path: &str) -> std::result::Result<PathBuf, u16> {
+    use std::path::Component;
+    let decoded = url_decode(raw_path).ok_or(400u16)?;
+    if decoded.contains('\0') { return Err(400); }
 
-    let mut request_line = String::new();
-    if reader.read_line(&mut request_line).is_err() { return; }
-
-    // Consume remaining headers.
-    loop {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) | Err(_)                        => break,
-            Ok(_) if line == "\r\n" || line == "\n" => break,
-            _ => {}
-        }
-    }
-
-    // Parse path from "GET /path HTTP/1.x".
-    let raw_path = request_line.split_whitespace().nth(1).unwrap_or("/").to_owned();
-    let raw_path = raw_path.split('?').next().unwrap_or("/");
-    let decoded  = url_decode(raw_path);
-    let rel      = decoded.trim_start_matches('/');
-
-    // Resolve path, guarding against directory traversal.
     let mut file_path = root.to_path_buf();
-    for component in Path::new(rel).components() {
-        use std::path::Component;
-        if let Component::Normal(c) = component { file_path.push(c); }
+    for component in Path::new(decoded.trim_start_matches('/')).components() {
+        match component {
+            Component::Normal(c) => {
+                if c.to_string_lossy().starts_with('.') { return Err(404); }
+                file_path.push(c);
+            }
+            Component::CurDir | Component::RootDir => {}
+            Component::ParentDir | Component::Prefix(_) => return Err(400),
+        }
     }
 
     if file_path.is_dir() { file_path.push("index.html"); }
@@ -569,37 +652,120 @@ fn serve_connection(mut stream: TcpStream, root: &Path) {
         if with_html.exists() { file_path = with_html; }
     }
 
-    let (status_line, body, content_type): (&str, Vec<u8>, &str) =
-        if file_path.is_file() {
-            match fs::read(&file_path) {
-                Ok(data) => ("200 OK", data, mime_type(&file_path)),
-                Err(_)   => ("500 Internal Server Error",
-                              b"Internal Server Error".to_vec(), "text/plain"),
-            }
-        } else {
-            ("404 Not Found", b"Not Found".to_vec(), "text/plain")
-        };
-
-    let header = format!(
-        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        status_line, content_type, body.len()
-    );
-    let _ = stream.write_all(header.as_bytes());
-    let _ = stream.write_all(&body);
+    let canonical = file_path.canonicalize().map_err(|_| 404u16)?;
+    if !canonical.starts_with(root) || !canonical.is_file() { return Err(404); }
+    Ok(canonical)
 }
 
-fn cmd_srv(port: u16) -> Result<()> {
-    let root     = env::current_dir()?;
-    let listener = TcpListener::bind(("0.0.0.0", port))
-        .map_err(|e| format!("Cannot bind to port {}: {}", port, e))?;
+fn status_text(code: u16) -> &'static str {
+    match code {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        431 => "Request Header Fields Too Large",
+        500 => "Internal Server Error",
+        _   => "Error",
+    }
+}
+
+fn write_head(stream: &mut TcpStream, code: u16, content_type: &str, len: u64) -> io::Result<()> {
+    let extra = if code == 405 { "Allow: GET, HEAD\r\n" } else { "" };
+    write!(
+        stream,
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
+         X-Content-Type-Options: nosniff\r\n{}Connection: close\r\n\r\n",
+        code, status_text(code), content_type, len, extra
+    )
+}
+
+fn serve_connection(mut stream: TcpStream, root: &Path) {
+    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+
+    // Cap total header bytes so a never-ending line can't exhaust memory.
+    let mut reader = BufReader::new((&stream).take(MAX_HEADER_BYTES));
+
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() { return; }
+
+    let mut headers_done = false;
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_)                          => break,
+            Ok(_) if line == "\r\n" || line == "\n" => { headers_done = true; break; }
+            _ => {}
+        }
+    }
+    if !headers_done || !request_line.ends_with('\n') {
+        let _ = write_head(&mut stream, 431, "text/plain", 0);
+        return;
+    }
+
+    // "GET /path HTTP/1.x"
+    let mut parts = request_line.split_whitespace();
+    let method   = parts.next().unwrap_or("");
+    let raw_path = parts.next().unwrap_or("/");
+    let raw_path = raw_path.split(['?', '#']).next().unwrap_or("/");
+
+    if method != "GET" && method != "HEAD" {
+        let _ = write_head(&mut stream, 405, "text/plain", 0);
+        return;
+    }
+
+    let path = match resolve_request(root, raw_path) {
+        Ok(p)     => p,
+        Err(code) => {
+            let msg = status_text(code);
+            let _ = write_head(&mut stream, code, "text/plain", msg.len() as u64);
+            if method == "GET" { let _ = stream.write_all(msg.as_bytes()); }
+            return;
+        }
+    };
+
+    let file = match fs::File::open(&path) {
+        Ok(f)  => f,
+        Err(_) => { let _ = write_head(&mut stream, 500, "text/plain", 0); return; }
+    };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if write_head(&mut stream, 200, mime_type(&path), len).is_err() { return; }
+    if method == "GET" {
+        // Stream rather than loading the whole file into memory.
+        let _ = io::copy(&mut file.take(len), &mut stream);
+    }
+}
+
+/// Decrements the live-connection counter when a handler thread finishes.
+struct ConnGuard(std::sync::Arc<AtomicUsize>);
+impl Drop for ConnGuard {
+    fn drop(&mut self) { self.0.fetch_sub(1, Ordering::SeqCst); }
+}
+
+fn cmd_srv(port: u16, public: bool) -> Result<()> {
+    let root = env::current_dir()?.canonicalize()?;
+    let host = if public { "0.0.0.0" } else { "127.0.0.1" };
+    let listener = TcpListener::bind((host, port))
+        .map_err(|e| format!("Cannot bind to {}:{}: {}", host, port, e))?;
     println!("Serving {} on http://localhost:{} — Ctrl-C to stop", root.display(), port);
+    if public {
+        eprintln!("warning: --public exposes this folder to every host that can reach this machine");
+    }
 
     let root = std::sync::Arc::new(root);
-    for stream in listener.incoming() {
-        if let Ok(s) = stream {
-            let root = std::sync::Arc::clone(&root);
-            std::thread::spawn(move || serve_connection(s, &root));
+    let live = std::sync::Arc::new(AtomicUsize::new(0));
+    for stream in listener.incoming().flatten() {
+        // Over the cap: drop the connection instead of spawning another thread.
+        if live.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+            live.fetch_sub(1, Ordering::SeqCst);
+            continue;
         }
+        let guard = ConnGuard(std::sync::Arc::clone(&live));
+        let root  = std::sync::Arc::clone(&root);
+        std::thread::spawn(move || {
+            let _guard = guard;
+            serve_connection(stream, &root);
+        });
     }
     Ok(())
 }
@@ -616,12 +782,13 @@ fn main() {
         "cmbi" => cmd_cmbi(),
         "cmbs" => cmd_cmbs(),
         "cpng" => cmd_cpng(),
-        "cr"   => cmd_cr(),
+        "cr"   => cmd_cr(args[2..].iter().any(|a| a == "--yes" || a == "-y")),
         "ffp"  => cmd_ffp(),
         "sffn" => cmd_sffn(),
         "srv"  => {
-            let port = args.get(2).and_then(|p| p.parse::<u16>().ok()).unwrap_or(8000);
-            cmd_srv(port)
+            let public = args[2..].iter().any(|a| a == "--public");
+            let port = args[2..].iter().find_map(|p| p.parse::<u16>().ok()).unwrap_or(8000);
+            cmd_srv(port, public)
         }
         "help" | "--help" | "-h" => { print_help(); Ok(()) }
         other => {
