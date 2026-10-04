@@ -11,8 +11,10 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Least privilege: jobs get read-only access by default; only the release job
+# is granted write access (see below).
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -23,7 +25,9 @@ jobs:
     name: check tag matches Cargo.toml
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - name: compare versions
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -36,9 +40,20 @@ jobs:
           fi
           echo "tag ${GITHUB_REF_NAME} matches Cargo.toml version ${cargo_version}"
 
+  # Fail the release if Cargo.lock contains a dependency with a known advisory.
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: audit Cargo.lock
+        run: cargo install cargo-audit --locked && cargo audit
+
   build:
     name: build (${{ matrix.name }})
-    needs: check-version
+    needs: [check-version, audit]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -65,17 +80,22 @@ jobs:
             exe: hk
 
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: install musl tools
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - uses: Swatinem/rust-cache@v2
+      # No build cache for release tags: a poisoned cache must not reach shipped binaries.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           key: ${{ matrix.target }}
 
@@ -85,22 +105,26 @@ jobs:
       - name: package (zip)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          $name = "hk-${{ github.ref_name }}-${{ matrix.name }}"
+          $name = "hk-$env:REF_NAME-${{ matrix.name }}"
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.exe }}", README.md -DestinationPath "dist/$name.zip"
 
       - name: package (tar.gz)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          name="hk-${{ github.ref_name }}-${{ matrix.name }}"
+          name="hk-${REF_NAME}-${{ matrix.name }}"
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/${{ matrix.exe }}" README.md dist/
           tar -C dist -czf "dist/$name.tar.gz" ${{ matrix.exe }} README.md
           rm dist/${{ matrix.exe }} dist/README.md
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: hk-${{ matrix.name }}
           path: dist/*
@@ -110,8 +134,12 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write      # create the release and upload assets
+      id-token: write      # sign build provenance
+      attestations: write  # store build provenance
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           path: dist
           merge-multiple: true
@@ -119,7 +147,12 @@ jobs:
       - name: checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt
 
-      - uses: softprops/action-gh-release@v3
+      # Signed provenance: lets users run `gh attestation verify <file> --repo ckunte/hkp`.
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/*
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           files: dist/*
           generate_release_notes: true

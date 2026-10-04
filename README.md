@@ -13,10 +13,13 @@ commands:
   cmbi        combine all PDF files in the current folder
   cmbs        combine PDF files per subdirectory
   cpng        compress PNG images into ./compressed/     [requires: pngquant]
-  cr          squash git history (new orphan branch)     [requires: git]
-  ffp         fix permissions: dirs 755, files 644
+  cr [--yes]  squash git history and force-push (asks first) [requires: git]
+  ffp [--yes] [--all]
+              fix permissions: dirs 755, files 644 (keeps +x, skips private)
   sffn        sanitise folder and file names
-  srv [port]  serve the current folder over HTTP (default port 8000)
+  srv [port] [--public]
+              serve the current folder over HTTP (default port 8000,
+              localhost only; --public listens on all interfaces)
   help        show this help
 ```
 
@@ -33,7 +36,7 @@ Download the archive for your system from [Releases](https://github.com/ckunte/h
 | Raspberry Pi 5 (64-bit Pi OS/Linux) | `hk-<version>-linux-arm64-rpi5.tar.gz` |
 | Linux x86-64 (any distro)           | `hk-<version>-linux-x86_64.tar.gz` |
 
-On macOS, clear the quarantine flag after downloading: `xattr -d com.apple.quarantine hk`
+The binaries are not code-signed or notarized, so macOS will block `hk` on first run. Before overriding that, verify the download (see [releases](#releases)), then clear the quarantine flag: `xattr -d com.apple.quarantine hk`
 
 ### from source
 
@@ -43,10 +46,10 @@ Rust is required to build `hk`. Install it via rustup:
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Then build and install the binary:
+Then, from a clone of this repository, build and install the binary:
 
 ```bash
-cargo install --path ~/scripts/hkp/hk
+cargo install --path . --locked
 ```
 
 After that, `hk <command>` is available anywhere.
@@ -73,7 +76,17 @@ All platforms       https://pngquant.org
 
 ## notes
 
-- `cmbi` and `cmbs` use pure Rust (lopdf) — no Ghostscript needed for combining PDFs
-- `srv` is a built-in HTTP server — no Python needed
-- `sffn` sanitises file/folder names natively — no fd, detox, or rename needed
-- `ffp` is pure Rust — no shell tools needed (macOS / Linux only; not available on Windows)
+- `cmbi` and `cmbs` use pure Rust (lopdf) — no Ghostscript needed for combining PDFs. Re-running them replaces the previous `*-comb.pdf` without merging it into itself; the output is written atomically, inputs over 1 GiB or malformed files are reported as errors, and `cmbs` carries on past a failing folder
+- `srv` is a built-in HTTP server — no Python needed. It binds to 127.0.0.1, serves GET/HEAD only, hides dotfiles, and refuses symlinks that point outside the served folder
+- `cr` requires a clean working tree and a typed confirmation (or `--yes`), and uses `--force-with-lease`; the original branch is restored if the push fails
+- `sffn` skips any rename whose target already exists, and reports it
+- `sffn` sanitises folder names and the names of document (pdf, doc/docx, xls/xlsx, ppt/pptx, odt/ods/odp, rtf, txt, md, csv, epub, pages/numbers/key), image (jpg, png, gif, webp, heic, tiff, bmp, svg), audio (mp3, wav, flac, m4a, aac, ogg) and video (mp4, mov, mkv, avi, webm, m4v) files natively — no fd, detox, or rename needed. Other files and hidden files are left alone. The list is `SANITISE_EXTS` in `src/main.rs`
+- `ffp` is pure Rust — no shell tools needed (macOS / Linux only; not available on Windows). It asks for confirmation (`--yes` to skip), refuses to run in `/` or your home folder, keeps the executable bit on files that already have it (755), and skips private entries with no group/other access (such as 600 keys) unless you pass `--all`
+
+## releases
+
+Release archives are built from a tagged commit, listed with checksums in `SHA256SUMS.txt`, and carry signed build provenance. Verify a download with:
+
+```bash
+gh attestation verify hk-<version>-<system>.tar.gz --repo ckunte/hkp
+```
