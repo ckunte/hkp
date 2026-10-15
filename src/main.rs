@@ -30,6 +30,7 @@ r#"Usage: hk <command> [argument]
   cmbs          Combine PDFs per subdirectory → <subdir>-comb.pdf
   cpng          Compress PNGs (q60-80) into ./compressed/ [pngquant]
   cr [--yes]    Squash git history to one commit, force-push [git]
+  crpdf         crop PDF header/footer (--top/--bott N inches, default 1.0)        
   ffp [--yes] [--all]
                 Set permissions: dirs 755, files 644 (keeps +x, skips private)
   sffn          Sanitise names of folders, documents and media files:
