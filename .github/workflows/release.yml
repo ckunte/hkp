@@ -49,7 +49,7 @@ jobs:
         with:
           persist-credentials: false
       - name: audit Cargo.lock
-        run: cargo install cargo-audit --locked && cargo audit
+        run: cargo install cargo-audit && cargo audit
 
   build:
     name: build (${{ matrix.name }})
