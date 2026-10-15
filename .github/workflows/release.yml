@@ -100,7 +100,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: package (zip)
         if: runner.os == 'Windows'
