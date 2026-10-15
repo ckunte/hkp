@@ -14,6 +14,7 @@ commands:
   cmbs        combine PDF files per subdirectory
   cpng        compress PNG images into ./compressed/     [requires: pngquant]
   cr [--yes]  squash git history and force-push (asks first) [requires: git]
+  crpdf       crop PDF header/footer (--top/--bott N inches, default 1.0)
   ffp [--yes] [--all]
               fix permissions: dirs 755, files 644 (keeps +x, skips private)
   sffn        sanitise folder and file names

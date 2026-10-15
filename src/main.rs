@@ -892,6 +892,145 @@ fn cmd_srv(port: u16, public: bool) -> Result<()> {
     Ok(())
 }
 
+fn obj_to_f64(obj: &Object) -> Result<f64> {
+    match obj {
+        Object::Integer(i) => Ok(*i as f64),
+        Object::Real(f)    => Ok(*f as f64),
+        _ => Err("expected a number in page box".into()),
+    }
+}
+
+fn crop_one_pdf(path: &Path, top_pts: f64, bott_pts: f64) -> Result<PathBuf> {
+    let mut doc = Document::load(path)
+        .map_err(|e| format!("{}: {}", path.display(), e))?;
+
+    let mut pages: Vec<(u32, ObjectId)> = doc.get_pages().into_iter().collect();
+    pages.sort_by_key(|(n, _)| *n);
+
+    for (page_num, page_id) in &pages {
+        let (x0, y0, x1, y1) = {
+            let obj  = doc.objects.get(page_id)
+                .ok_or_else(|| format!("page {}: object missing", page_num))?;
+            let dict = obj.as_dict()
+                .map_err(|_| format!("page {}: not a dictionary", page_num))?;
+            let arr  = dict.get(b"CropBox")
+                .or_else(|_| dict.get(b"MediaBox"))
+                .map_err(|_| format!("page {}: no MediaBox or CropBox found", page_num))?
+                .as_array()
+                .map_err(|_| format!("page {}: box is not an array", page_num))?;
+            if arr.len() < 4 {
+                return Err(format!("page {}: box has fewer than 4 elements", page_num).into());
+            }
+            (obj_to_f64(&arr[0])?, obj_to_f64(&arr[1])?,
+             obj_to_f64(&arr[2])?, obj_to_f64(&arr[3])?)
+        };
+
+        let height = y1 - y0;
+        if top_pts + bott_pts >= height {
+            return Err(format!(
+                "{}: page {}: combined crop ({:.2} + {:.2} = {:.2} pt) \
+                 exceeds page height ({:.2} pt)",
+                path.display(), page_num,
+                top_pts, bott_pts, top_pts + bott_pts, height
+            ).into());
+        }
+
+        // PDF y-axis is bottom-up:
+        //   crop top  → lower y1  (y1 - top_pts)
+        //   crop bott → raise y0  (y0 + bott_pts)
+        if let Some(obj) = doc.objects.get_mut(page_id) {
+            if let Ok(dict) = obj.as_dict_mut() {
+                dict.set("CropBox", Object::Array(vec![
+                    Object::Real(x0 as f32),
+                    Object::Real((y0 + bott_pts) as f32),
+                    Object::Real(x1 as f32),
+                    Object::Real((y1 - top_pts) as f32),
+                ]));
+            }
+        }
+    }
+
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
+    let out  = path.with_file_name(format!("{}-cropped.pdf", stem));
+    doc.compress();
+    doc.save(&out)
+        .map_err(|e| format!("{}: save failed: {}", out.display(), e))?;
+    Ok(out)
+}
+
+fn cmd_crpdf(file_args: &[String]) -> Result<()> {
+    let mut top:   f64          = 1.0;
+    let mut bott:  Option<f64>  = None;
+    let mut paths: Vec<PathBuf> = Vec::new();
+
+    let mut i = 0;
+    while i < file_args.len() {
+        match file_args[i].as_str() {
+            "--top" => {
+                i += 1;
+                top = file_args.get(i)
+                    .ok_or("--top: missing value")?
+                    .parse::<f64>()
+                    .map_err(|_| "--top: value must be a number")?;
+                if top < 0.0 { return Err("--top: must be non-negative".into()); }
+            }
+            "--bott" => {
+                i += 1;
+                let v = file_args.get(i)
+                    .ok_or("--bott: missing value")?
+                    .parse::<f64>()
+                    .map_err(|_| "--bott: value must be a number")?;
+                if v < 0.0 { return Err("--bott: must be non-negative".into()); }
+                bott = Some(v);
+            }
+            arg => { paths.push(PathBuf::from(arg)); }
+        }
+        i += 1;
+    }
+
+    let bott = bott.unwrap_or(top);
+
+    if paths.is_empty() {
+        return Err(
+            "crpdf: no PDF files specified.\n\
+             Usage: hk crpdf [--top N] [--bott N] file.pdf [...]".into()
+        );
+    }
+
+    let top_pts  = top  * 72.0;
+    let bott_pts = bott * 72.0;
+
+    println!(
+        "Cropping {} file{} — top: {:.2}\", bottom: {:.2}\"",
+        paths.len(), if paths.len() == 1 { "" } else { "s" },
+        top, bott,
+    );
+
+    let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let count = AtomicUsize::new(0);
+
+    paths.par_iter().for_each(|path| {
+        match crop_one_pdf(path, top_pts, bott_pts) {
+            Ok(out) => {
+                count.fetch_add(1, Ordering::Relaxed);
+                println!("  {}", out.display());
+            }
+            Err(e) => {
+                errors.lock().unwrap().push(format!("{}", e));
+            }
+        }
+    });
+
+    let n = count.load(Ordering::Relaxed);
+    println!("Done: {}/{} file{} cropped.",
+        n, paths.len(), if n == 1 { "" } else { "s" });
+    for e in errors.into_inner().unwrap() {
+        eprintln!("warning: {}", e);
+    }
+    Ok(())
+}
+
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -905,6 +1044,7 @@ fn main() {
         "cmbs" => cmd_cmbs(),
         "cpng" => cmd_cpng(),
         "cr"   => cmd_cr(args[2..].iter().any(|a| a == "--yes" || a == "-y")),
+        "crpdf" => cmd_crpdf(&args[2..]),        
         "ffp"  => cmd_ffp(&args[2..]),
         "sffn" => cmd_sffn(),
         "srv"  => {
