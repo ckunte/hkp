@@ -14,7 +14,7 @@ commands:
   cmbs        combine PDF files per subdirectory
   cpng        compress PNG images into ./compressed/     [requires: pngquant]
   cr [--yes]  squash git history and force-push (asks first) [requires: git]
-  crpdf       crop PDF header/footer (--top/--bott N inches, default 1.0)
+  crpdf       crop PDF header/footer (--top/--bott N inches, default 1.0) file1.pdf file2.pdf 
   ffp [--yes] [--all]
               fix permissions: dirs 755, files 644 (keeps +x, skips private)
   sffn        sanitise folder and file names
@@ -37,7 +37,23 @@ Download the archive for your system from [Releases](https://github.com/ckunte/h
 | Raspberry Pi 5 (64-bit Pi OS/Linux) | `hk-<version>-linux-arm64-rpi5.tar.gz` |
 | Linux x86-64 (any distro)           | `hk-<version>-linux-x86_64.tar.gz` |
 
-The binaries are not code-signed or notarized, so macOS will block `hk` on first run. Before overriding that, verify the download (see [releases](#releases)), then clear the quarantine flag: `xattr -d com.apple.quarantine hk`
+The binaries are not code-signed or notarized, so macOS will block `hk` on first run. Before overriding that, verify the download (see [releases](#releases)), then clear the quarantine flag: `xattr -d com.apple.quarantine hk`.
+
+For macOS, a bash install script [mac-inst.sh][mi] is provided, which does the following:
+
+1. Downloads the latest macOS (Apple Silicon) release
+1. Verifies the download against its hash in `SHA256SUMS.txt`
+1. If the hash matches, extracts the `hk` binary (otherwise stops)
+1. Clears the macOS quarantine flag
+1. Installs `hk` to `/usr/local/bin` (uses `sudo` if needed)
+
+Run it as follows from a Terminal (be sure to check the script, if unsure):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/ckunte/hkp/raw/master/mac-inst.sh | bash
+```
+
+[mi]: https://github.com/ckunte/hkp/blob/master/mac-inst.sh
 
 ### from source
 
