@@ -12,11 +12,20 @@ usage: hk <command> [argument]
 commands:
   cmbi   combine all PDF files in the current folder
   cmbs   combine PDF files per subfolder
-  crop   crop PDF header/footer (--top/--bott N inches, default 1.0) file1.pdf file2.pdf
+  crop   crop PDF header/footer (--top/--bott N inches, default 1.0)
   fffp [--yes] [--all]
          fix permissions: dirs 755, files 644 (keeps +x, skips private)
   sffn   sanitise folder and file names
   help   show this help
+```
+`crop` can take more than one pdf file, e.g.,
+
+```sh
+hk crop --top 1.5 --bott 0.5 file-1.pdf file-2.pdf ... file-n.pdf
+```
+For a single file, the command can simply be:
+```sh
+hk crop --top 1.5 --bott 0.5 file.pdf
 ```
 
 ## install
