@@ -111,7 +111,9 @@ fn walk_inner(
 }
 
 /// PDFs directly inside `dir`, sorted, excluding a file named `skip` (the
-/// combined output of a previous run, which must not be merged into itself).
+/// combined output of a previous run, which must not be merged into itself)
+/// and hidden files — notably macOS "._name.pdf" AppleDouble stubs, which
+/// appear on non-HFS volumes and are not valid PDFs.
 fn collect_sorted_pdfs(dir: &Path, skip: &str) -> Vec<PathBuf> {
     let Ok(rd) = fs::read_dir(dir) else { return vec![]; };
     let mut pdfs: Vec<PathBuf> = rd
@@ -119,6 +121,7 @@ fn collect_sorted_pdfs(dir: &Path, skip: &str) -> Vec<PathBuf> {
         .filter(|e| {
             e.file_type().map(|ft| ft.is_file()).unwrap_or(false)
                 && e.file_name() != skip
+                && !e.file_name().to_string_lossy().starts_with('.')
                 && has_ext(&e.path(), "pdf")
         })
         .map(|e| e.path())
