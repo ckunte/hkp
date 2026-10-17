@@ -1,6 +1,6 @@
 # hkp
 
-A collection of housekeeping tools (`~/scripts/hkp`) to manage files and folders, set permissions, combine and crop PDF files — packaged as a single `hk` binary written in Rust.
+A collection of housekeeping tools to manage files and folders, set permissions, combine and crop PDF files — packaged as a single `hk` binary written in Rust.
 
 ## usage
 
@@ -11,7 +11,7 @@ usage: hk <command> [argument]
 
 commands:
   cmbi   combine all PDF files in the current folder
-  cmbs   combine PDF files per subdirectory
+  cmbs   combine PDF files per subfolder
   crop   crop PDF header/footer (--top/--bott N inches, default 1.0) file1.pdf file2.pdf
   fffp [--yes] [--all]
          fix permissions: dirs 755, files 644 (keeps +x, skips private)
@@ -74,7 +74,7 @@ None — `hk` is a single self-contained binary.
 
 - `cmbi` and `cmbs` use pure Rust (lopdf) — no Ghostscript needed for combining PDFs. Re-running them replaces the previous `*-comb.pdf` without merging it into itself; the output is written atomically, inputs over 1 GiB or malformed files are reported as errors, and `cmbs` carries on past a failing folder
 - `sffn` skips any rename whose target already exists, and reports it
-- `sffn` sanitises folder names and the names of document (pdf, doc/docx, xls/xlsx, ppt/pptx, odt/ods/odp, rtf, txt, md, csv, epub, pages/numbers/key), image (jpg, png, gif, webp, heic, tiff, bmp, svg), audio (mp3, wav, flac, m4a, aac, ogg) and video (mp4, mov, mkv, avi, webm, m4v) files natively — no fd, detox, or rename needed. Other files and hidden files are left alone. The list is `SANITISE_EXTS` in `src/main.rs`
+- `sffn` sanitises folder names and the names of document (pdf, doc/docx, typ, xls/xlsx, ppt/pptx, odt/ods/odp, rtf, txt, md, csv, epub, pages/numbers/key), image (jpg, png, gif, webp, heic, tiff, bmp, svg), audio (mp3, wav, flac, m4a, aac, ogg) and video (mp4, mov, mkv, avi, webm, m4v) files natively — no fd, detox, or rename needed. Other files and hidden files are left alone. The list is `SANITISE_EXTS` in `src/main.rs`
 - `fffp` is pure Rust — no shell tools needed (macOS / Linux only; not available on Windows). It asks for confirmation (`--yes` to skip), refuses to run in `/` or your home folder, keeps the executable bit on files that already have it (755), and skips private entries with no group/other access (such as 600 keys) unless you pass `--all`
 
 ## releases

@@ -27,12 +27,15 @@ usage: hk <command> [argument]
 
 commands:
   cmbi   combine all PDF files in the current folder
-  cmbs   combine PDF files per subdirectory
+  cmbs   combine PDF files per subfolder
   crop   crop PDF header/footer (--top/--bott N inches, default 1.0) file1.pdf file2.pdf
   fffp [--yes] [--all]
          fix permissions: dirs 755, files 644 (keeps +x, skips private)
   sffn   sanitise folder and file names
   help   show this help
+
+author:
+  Chetan Kunte, github.com/ckunte/hkp
 "#
     );
 }
@@ -240,7 +243,7 @@ fn cmd_fffp(_flags: &[String]) -> Result<()> {
 const SANITISE_EXTS: &[&str] = &[
     // documents
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
-    "rtf", "txt", "md", "csv", "epub", "pages", "numbers", "key",
+    "rtf", "txt", "md", "csv", "epub", "pages", "numbers", "key", "typ",
     // images
     "jpg", "jpeg", "png", "gif", "webp", "heic", "tif", "tiff", "bmp", "svg",
     // audio
