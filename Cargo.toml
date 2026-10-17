@@ -2,7 +2,7 @@
 name = "hk"
 version = "0.2.2"
 edition = "2021"
-description = "Housekeeping tools — pure Rust, single binary, no Make required"
+description = "Housekeeping tools"
 
 [[bin]]
 name = "hk"
