@@ -5,7 +5,6 @@ use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,
@@ -29,7 +28,6 @@ usage: hk <command> [argument]
 commands:
   cmbi   combine all PDF files in the current folder
   cmbs   combine PDF files per subdirectory
-  cpng   compress PNG images into ./compressed/  [requires: pngquant]
   crop   crop PDF header/footer (--top/--bott N inches, default 1.0) file1.pdf file2.pdf
   fffp [--yes] [--all]
          fix permissions: dirs 755, files 644 (keeps +x, skips private)
@@ -524,67 +522,6 @@ fn cmd_cmbs() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// cpng — compress PNG images (parallel pngquant invocations)
-// ---------------------------------------------------------------------------
-
-fn cmd_cpng() -> Result<()> {
-    let cwd     = env::current_dir()?;
-    let out_dir = cwd.join("compressed");
-
-    let pngs: Vec<PathBuf> = fs::read_dir(&cwd)?
-        .flatten()
-        .filter(|e| {
-            e.file_type().map(|ft| ft.is_file()).unwrap_or(false) && has_ext(&e.path(), "png")
-        })
-        .map(|e| e.path())
-        .collect();
-
-    if pngs.is_empty() {
-        println!("No PNG files found in the current directory.");
-        return Ok(());
-    }
-
-    // Probe for pngquant before spawning parallel work.
-    Command::new("pngquant")
-        .arg("--version")
-        .output()
-        .map_err(|_| "pngquant not found — install it first (https://pngquant.org)")?;
-    fs::create_dir_all(&out_dir)?;
-
-    let count  = AtomicUsize::new(0);
-    let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-    pngs.par_iter().for_each(|png| {
-        let filename = png.file_name().unwrap();
-        let output   = out_dir.join(filename);
-        let result   = Command::new("pngquant")
-            .args(["--quality=60-80", "--force", "--output"])
-            .arg(&output)
-            .arg(png)
-            .output();
-        match result {
-            Ok(o) if o.status.success() => {
-                count.fetch_add(1, Ordering::Relaxed);
-            }
-            Ok(_) => {
-                errors.lock().unwrap()
-                    .push(format!("{}: pngquant failed", png.display()));
-            }
-            Err(e) => {
-                errors.lock().unwrap()
-                    .push(format!("{}: {}", png.display(), e));
-            }
-        }
-    });
-
-    let n = count.load(Ordering::Relaxed);
-    println!("Compressed {}/{} file{}. Output: {}",
-        n, pngs.len(), s(n), out_dir.display());
-    warn_all(errors.into_inner().unwrap());
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
 // crop — trim PDF header/footer
 // ---------------------------------------------------------------------------
 
@@ -736,7 +673,6 @@ fn main() {
     let result: Result<()> = match cmd {
         "cmbi" => cmd_cmbi(),
         "cmbs" => cmd_cmbs(),
-        "cpng" => cmd_cpng(),
         "crop" => cmd_crop(rest),
         "fffp"  => cmd_fffp(rest),
         "sffn" => cmd_sffn(),

@@ -1,6 +1,6 @@
 # hkp
 
-A collection of housekeeping tools (`~/scripts/hkp`) to manage files and folders, set permissions, combine and crop PDF files, and compress PNGs — packaged as a single `hk` binary written in Rust.
+A collection of housekeeping tools (`~/scripts/hkp`) to manage files and folders, set permissions, combine and crop PDF files — packaged as a single `hk` binary written in Rust.
 
 ## usage
 
@@ -12,7 +12,6 @@ usage: hk <command> [argument]
 commands:
   cmbi   combine all PDF files in the current folder
   cmbs   combine PDF files per subdirectory
-  cpng   compress PNG images into ./compressed/  [requires: pngquant]
   crop   crop PDF header/footer (--top/--bott N inches, default 1.0) file1.pdf file2.pdf
   fffp [--yes] [--all]
          fix permissions: dirs 755, files 644 (keeps +x, skips private)
@@ -69,16 +68,7 @@ After that, `hk <command>` is available anywhere.
 
 ## dependencies
 
-Only `cpng` requires an external tool, **pngquant**:
-
-```
-macOS (Homebrew)    brew install pngquant
-Linux (apt)         sudo apt install pngquant
-Linux (dnf)         sudo dnf install pngquant
-Windows (winget)    winget install pngquant
-Windows (Scoop)     scoop install pngquant
-All platforms       https://pngquant.org
-```
+None — `hk` is a single self-contained binary.
 
 ## notes
 
